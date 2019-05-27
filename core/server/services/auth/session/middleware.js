@@ -108,18 +108,19 @@ const authenticate = (req, res, next) => {
             return next(err);
         }
 
-        try {
-            cookieCsrfProtection(req);
-        } catch (err) {
-            return next(err);
-        }
+        // try {
+        //     cookieCsrfProtection(req);
+        // } catch (err) {
+        //     return next(err);
+        // }
 
-        if (!req.session || !req.session.user_id) {
-            req.user = null;
-            return next();
-        }
+        //TODO: Back off from Cookie!
+        // if (!req.session || !req.session.user_id) {
+        //     req.user = null;
+        //     return next();
+        // }
 
-        models.User.findOne({id: req.session.user_id})
+        models.User.findOne({cognito_user_id: req.cognito_user_id})
             .then((user) => {
                 req.user = user;
                 next();

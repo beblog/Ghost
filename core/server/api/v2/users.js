@@ -55,6 +55,7 @@ module.exports = {
         query(frame) {
             return models.User.findOne(frame.data, frame.options)
                 .then((model) => {
+                    console.log(model);
                     if (!model) {
                         return Promise.reject(new common.errors.NotFoundError({
                             message: common.i18n.t('errors.api.users.userNotFound')

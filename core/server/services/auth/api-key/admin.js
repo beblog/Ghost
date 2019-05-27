@@ -42,7 +42,9 @@ const authenticate = (req, res, next) => {
         return next();
     }
 
-    const token = _extractTokenFromHeader(req.headers.authorization);
+    //const token = _extractTokenFromHeader(req.headers.authorization);
+    // Cognito Token don't start with Ghost
+    const token = req.headers.authorization;
 
     if (!token) {
         return next(new common.errors.UnauthorizedError({
@@ -51,7 +53,9 @@ const authenticate = (req, res, next) => {
         }));
     }
 
-    const decoded = jwt.decode(token, {complete: true});
+    const decoded = jwt.decode(token, {
+        complete: true
+    });
 
     if (!decoded || !decoded.header) {
         return next(new common.errors.BadRequestError({
@@ -60,7 +64,31 @@ const authenticate = (req, res, next) => {
         }));
     }
 
-    const apiKeyId = decoded.header.kid;
+    // Fail if token issuer is invalid
+    if (decoded.payload.iss !== "https://cognito-idp." + process.env.COGNITO_REGION + ".amazonaws.com/" + process.env.COGNITO_USER_POOL) {
+        return next(new common.errors.BadRequestError({
+            message: common.i18n.t('errors.middleware.auth.invalidToken'),
+            code: 'INVALID_ISSUER'
+        }));
+    }
+
+    // Reject the jwt if it's not an id token
+    if (!(decoded.payload.token_use === 'id')) {
+        return next(new common.errors.BadRequestError({
+            message: common.i18n.t('errors.middleware.auth.invalidToken'),
+            code: 'INVALID_USE'
+        }));
+    }
+
+    // Fail if token audience is invalid
+    if (decoded.payload.aud !== process.env.COGNITO_APP_ID) {
+        return next(new common.errors.BadRequestError({
+            message: common.i18n.t('errors.middleware.auth.invalidToken'),
+            code: 'INVALID_AUDIENCE'
+        }));
+    }
+
+    const apiKeyId = decoded.payload["custom:api_key"];
 
     if (!apiKeyId) {
         return next(new common.errors.BadRequestError({
@@ -69,7 +97,9 @@ const authenticate = (req, res, next) => {
         }));
     }
 
-    models.ApiKey.findOne({id: apiKeyId}).then((apiKey) => {
+    models.ApiKey.findOne({
+        id: apiKeyId
+    }).then((apiKey) => {
         if (!apiKey) {
             return next(new common.errors.UnauthorizedError({
                 message: common.i18n.t('errors.middleware.auth.unknownAdminApiKey'),
@@ -96,26 +126,35 @@ const authenticate = (req, res, next) => {
             audience: '/v2/admin/'
         }, JWT_OPTIONS);
 
-        try {
-            jwt.verify(token, secret, options);
-        } catch (err) {
-            if (err.name === 'TokenExpiredError' || err.name === 'JsonWebTokenError') {
-                return next(new common.errors.UnauthorizedError({
-                    message: common.i18n.t('errors.middleware.auth.invalidTokenWithMessage', {message: err.message}),
-                    code: 'INVALID_JWT',
-                    err
-                }));
-            }
+        // TODO: Check JWT with AWS PEM
+        // try {
+        //     jwt.verify(token, secret, options);
+        // } catch (err) {
+        //     if (err.name === 'TokenExpiredError' || err.name === 'JsonWebTokenError') {
+        //         return next(new common.errors.UnauthorizedError({
+        //             message: common.i18n.t('errors.middleware.auth.invalidTokenWithMessage', {
+        //                 message: err.message
+        //             }),
+        //             code: 'INVALID_JWT',
+        //             err
+        //         }));
+        //     }
 
-            // unknown error
-            return next(new common.errors.InternalServerError({err}));
-        }
+        //     // unknown error
+        //     return next(new common.errors.InternalServerError({
+        //         err
+        //     }));
+        // }
 
         // authenticated OK, store the api key on the request for later checks and logging
         req.api_key = apiKey;
+        // cognito user id is used to search for user
+        req.cognito_user_id = decoded.payload.sub;
         next();
     }).catch((err) => {
-        next(new common.errors.InternalServerError({err}));
+        next(new common.errors.InternalServerError({
+            err
+        }));
     });
 };
 
